@@ -15,6 +15,10 @@
  */
 package com.github.jcustenborder.kafka.connect.archive;
 
+//import org.apache.kafka.common.cache.Cache;
+//import org.apache.kafka.common.cache.LRUCache;
+import org.apache.kafka.common.cache.SynchronizedCache;
+import org.apache.kafka.common.config.ConfigDef;
 import com.github.jcustenborder.kafka.connect.utils.config.Description;
 import com.github.jcustenborder.kafka.connect.utils.config.DocumentationNote;
 import org.apache.kafka.common.config.ConfigDef;
@@ -23,66 +27,90 @@ import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.transforms.Transformation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @Description("The Archive transformation is used to help preserve all of the data for a message when archived to S3.")
 @DocumentationNote("This transform works by copying the key, value, topic, and timestamp to new record where this is all " +
-    "contained in the value of the message. This will allow connectors like Confluent's S3 connector to properly archive " +
-    "the record.")
+"contained in the value of the message. This will allow connectors like Confluent's S3 connector to properly archive " +
+"the record.")
 public class Archive<R extends ConnectRecord<R>> implements Transformation<R> {
-  @Override
-  public R apply(R r) {
-    if (r.valueSchema() == null) {
-      return applySchemaless(r);
-    } else {
-      return applyWithSchema(r);
-    }
-  }
+	private static final Logger log = LoggerFactory.getLogger(Archive.class);
+	@Override
+	public R apply(R r) {
+		if (r.valueSchema() == null) {
+			return applySchemaless(r);
+		} else {
+			return applyWithSchema(r);
+		}
+	}
 
-  private R applyWithSchema(R r) {
-    final Schema schema = SchemaBuilder.struct()
-        .name("com.github.jcustenborder.kafka.connect.archive.Storage")
-        .field("key", r.keySchema())
-        .field("value", r.valueSchema())
-        .field("topic", Schema.STRING_SCHEMA)
-        .field("timestamp", Schema.INT64_SCHEMA);
-    Struct value = new Struct(schema)
-        .put("key", r.key())
-        .put("value", r.value())
-        .put("topic", r.topic())
-        .put("timestamp", r.timestamp());
-    return r.newRecord(r.topic(), r.kafkaPartition(), null, null, schema, value, r.timestamp());
-  }
+	private HashMap<Map, Schema> schemaUpdateCache;
 
-  @SuppressWarnings("unchecked")
-  private R applySchemaless(R r) {
+	private Schema getOrCreateSchema(R r){
+		// Create a HashMap with {key:keySchema,value:valueShhema} structure. This will be used as a key 
+		// for the schemaUpdateCache to lookup existing schemas.
+		// The reasoning is that we create Connect schemas whose uniqueness is identified by *both* key and value schemas
+		final Map<String, Object> schemaMap = new HashMap<>();
+		schemaMap.put("value",r.valueSchema());
+		schemaMap.put("key",r.keySchema());
+		Schema returnSchema = schemaUpdateCache.get(schemaMap);
+		if (returnSchema == null){
+			final Schema schema = SchemaBuilder.struct()
+				.name("com.github.jcustenborder.kafka.connect.archive.Storage")
+				.field("key", r.keySchema())
+				.field("value", r.valueSchema())
+				.field("topic", Schema.STRING_SCHEMA)
+				.field("timestamp", Schema.INT64_SCHEMA);
+			returnSchema = schema;
+			schemaUpdateCache.put(schemaMap,returnSchema);
+			log.trace("Adding schema to cache: '{}'",returnSchema);
+		}
+		return returnSchema;
+	}
 
-    final Map<String, Object> archiveValue = new HashMap<>();
+	private R applyWithSchema(R r) {
 
-    final Map<String, Object> value = (Map<String, Object>) r.value();
+		Schema schema = getOrCreateSchema(r);
+		Struct value = new Struct(schema)
+			.put("key", r.key())
+			.put("value", r.value())
+			.put("topic", r.topic())
+			.put("timestamp", r.timestamp());
+		return r.newRecord(r.topic(), r.kafkaPartition(), null, null, schema, value, r.timestamp());
+	}
 
-    archiveValue.put("key", r.key());
-    archiveValue.put("value", value);
-    archiveValue.put("topic", r.topic());
-    archiveValue.put("timestamp", r.timestamp());
+	@SuppressWarnings("unchecked")
+	private R applySchemaless(R r) {
 
-    return r.newRecord(r.topic(), r.kafkaPartition(), null, null, null, archiveValue, r.timestamp());
-  }
+		final Map<String, Object> archiveValue = new HashMap<>();
 
-  @Override
-  public ConfigDef config() {
-    return new ConfigDef();
-  }
+		final Map<String, Object> value = (Map<String, Object>) r.value();
 
-  @Override
-  public void close() {
+		archiveValue.put("key", r.key());
+		archiveValue.put("value", value);
+		archiveValue.put("topic", r.topic());
+		archiveValue.put("timestamp", r.timestamp());
 
-  }
+		return r.newRecord(r.topic(), r.kafkaPartition(), null, null, null, archiveValue, r.timestamp());
+	}
 
-  @Override
-  public void configure(Map<String, ?> map) {
+	@Override
+	public ConfigDef config() {
+		return new ConfigDef();
+	}
 
-  }
+	@Override
+	public void close() {
+
+	}
+
+	@Override
+	public void configure(Map<String, ?> map) {
+		schemaUpdateCache = new HashMap<>();
+
+	}
 }
