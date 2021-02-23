@@ -38,79 +38,79 @@ import java.util.Map;
 "contained in the value of the message. This will allow connectors like Confluent's S3 connector to properly archive " +
 "the record.")
 public class Archive<R extends ConnectRecord<R>> implements Transformation<R> {
-	private static final Logger log = LoggerFactory.getLogger(Archive.class);
-	@Override
-	public R apply(R r) {
-		if (r.valueSchema() == null) {
-			return applySchemaless(r);
-		} else {
-			return applyWithSchema(r);
-		}
-	}
+  private static final Logger log = LoggerFactory.getLogger(Archive.class);
+  @Override
+  public R apply(R r) {
+    if (r.valueSchema() == null) {
+      return applySchemaless(r);
+    } else {
+      return applyWithSchema(r);
+    }
+  }
 
-	private HashMap<Map, Schema> schemaUpdateCache;
+  private HashMap<Map, Schema> schemaUpdateCache;
 
-	private Schema getOrCreateSchema(R r){
-		// Create a HashMap with {key:keySchema,value:valueShhema} structure. This will be used as a key 
-		// for the schemaUpdateCache to lookup existing schemas.
-		// The reasoning is that we create Connect schemas whose uniqueness is identified by *both* key and value schemas
-		final Map<String, Object> schemaMap = new HashMap<>();
-		schemaMap.put("value",r.valueSchema());
-		schemaMap.put("key",r.keySchema());
-		Schema returnSchema = schemaUpdateCache.get(schemaMap);
-		if (returnSchema == null){
-			final Schema schema = SchemaBuilder.struct()
-				.name("com.github.jcustenborder.kafka.connect.archive.Storage")
-				.field("key", r.keySchema())
-				.field("value", r.valueSchema())
-				.field("topic", Schema.STRING_SCHEMA)
-				.field("timestamp", Schema.INT64_SCHEMA);
-			returnSchema = schema;
-			schemaUpdateCache.put(schemaMap,returnSchema);
-			log.trace("Adding schema to cache: '{}'",returnSchema);
-		}
-		return returnSchema;
-	}
+  private Schema getOrCreateSchema(R r){
+    // Create a HashMap with {key:keySchema,value:valueShhema} structure. This will be used as a key 
+    // for the schemaUpdateCache to lookup existing schemas.
+    // The reasoning is that we create Connect schemas whose uniqueness is identified by *both* key and value schemas
+    final Map<String, Object> schemaMap = new HashMap<>();
+    schemaMap.put("value",r.valueSchema());
+    schemaMap.put("key",r.keySchema());
+    Schema returnSchema = schemaUpdateCache.get(schemaMap);
+    if (returnSchema == null){
+      final Schema schema = SchemaBuilder.struct()
+        .name("com.github.jcustenborder.kafka.connect.archive.Storage")
+        .field("key", r.keySchema == null ? Schema.OPTIONAL_BYTES_SCHEMA : r.keySchema() )
+        .field("value", r.valueSchema() == null ? Schema.OPTIONAL_BYTES_SCHEMA : r.valueSchema() )
+        .field("topic", Schema.STRING_SCHEMA)
+        .field("timestamp", Schema.INT64_SCHEMA);
+      returnSchema = schema;
+      schemaUpdateCache.put(schemaMap,returnSchema);
+      log.trace("Adding schema to cache: '{}'",returnSchema);
+    }
+    return returnSchema;
+  }
 
-	private R applyWithSchema(R r) {
+  private R applyWithSchema(R r) {
 
-		Schema schema = getOrCreateSchema(r);
-		Struct value = new Struct(schema)
-			.put("key", r.key())
-			.put("value", r.value())
-			.put("topic", r.topic())
-			.put("timestamp", r.timestamp());
-		return r.newRecord(r.topic(), r.kafkaPartition(), null, null, schema, value, r.timestamp());
-	}
+    Schema schema = getOrCreateSchema(r);
+    Struct value = new Struct(schema)
+      .put("key", r.key())
+      .put("value", r.value())
+      .put("topic", r.topic())
+      .put("timestamp", r.timestamp());
+    return r.newRecord(r.topic(), r.kafkaPartition(), null, null, schema, value, r.timestamp());
+  }
 
-	@SuppressWarnings("unchecked")
-	private R applySchemaless(R r) {
+  @SuppressWarnings("unchecked")
+  private R applySchemaless(R r) {
 
-		final Map<String, Object> archiveValue = new HashMap<>();
+    final Map<String, Object> archiveValue = new HashMap<>();
 
-		final Map<String, Object> value = (Map<String, Object>) r.value();
+    final Map<String, Object> value = (Map<String, Object>) r.value();
 
-		archiveValue.put("key", r.key());
-		archiveValue.put("value", value);
-		archiveValue.put("topic", r.topic());
-		archiveValue.put("timestamp", r.timestamp());
+    archiveValue.put("key", r.key());
+    archiveValue.put("value", value);
+    archiveValue.put("topic", r.topic());
+    archiveValue.put("timestamp", r.timestamp());
 
-		return r.newRecord(r.topic(), r.kafkaPartition(), null, null, null, archiveValue, r.timestamp());
-	}
+    return r.newRecord(r.topic(), r.kafkaPartition(), null, null, null, archiveValue, r.timestamp());
+  }
 
-	@Override
-	public ConfigDef config() {
-		return new ConfigDef();
-	}
+  @Override
+  public ConfigDef config() {
+    return new ConfigDef();
+  }
 
-	@Override
-	public void close() {
+  @Override
+  public void close() {
 
-	}
+  }
 
-	@Override
-	public void configure(Map<String, ?> map) {
-		schemaUpdateCache = new HashMap<>();
+  @Override
+  public void configure(Map<String, ?> map) {
+    schemaUpdateCache = new HashMap<>();
 
-	}
+  }
 }
