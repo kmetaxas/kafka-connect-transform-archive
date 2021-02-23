@@ -61,7 +61,7 @@ public class Archive<R extends ConnectRecord<R>> implements Transformation<R> {
     if (returnSchema == null){
       final Schema schema = SchemaBuilder.struct()
         .name("com.github.jcustenborder.kafka.connect.archive.Storage")
-        .field("key", r.keySchema == null ? Schema.OPTIONAL_BYTES_SCHEMA : r.keySchema() )
+        .field("key", r.keySchema() == null ? Schema.OPTIONAL_BYTES_SCHEMA : r.keySchema() )
         .field("value", r.valueSchema() == null ? Schema.OPTIONAL_BYTES_SCHEMA : r.valueSchema() )
         .field("topic", Schema.STRING_SCHEMA)
         .field("timestamp", Schema.INT64_SCHEMA);
@@ -111,6 +111,5 @@ public class Archive<R extends ConnectRecord<R>> implements Transformation<R> {
   @Override
   public void configure(Map<String, ?> map) {
     schemaUpdateCache = new HashMap<>();
-
   }
 }
